@@ -19,7 +19,7 @@ uis.directive('uiSelect',
 
       //Multiple or Single depending if multiple attribute presence
       if (angular.isDefined(tAttrs.multiple))
-        tElement.append("<ui-select-multiple/>").removeAttr('multiple');
+        tElement.append("<ui-select-multiple dict=\"" + tAttrs.dict + "\"/>").removeAttr('multiple');
       else
         tElement.append("<ui-select-single/>");       
 

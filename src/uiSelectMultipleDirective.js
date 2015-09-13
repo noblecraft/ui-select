@@ -1,4 +1,4 @@
-uis.directive('uiSelectMultiple', ['uiSelectMinErr','$timeout', function(uiSelectMinErr, $timeout) {
+uis.directive('uiSelectMultiple', ['uiSelectMinErr','$timeout', '$q', '$parse', function(uiSelectMinErr, $timeout, $q, $parse) {
   return {
     restrict: 'EA',
     require: ['^uiSelect', '^ngModel'],
@@ -66,6 +66,10 @@ uis.directive('uiSelectMultiple', ['uiSelectMinErr','$timeout', function(uiSelec
 
     link: function(scope, element, attrs, ctrls) {
 
+      if (angular.isDefined(attrs.dict)) {
+        scope.dict = $parse(attrs.dict)(scope);
+      }        
+
       var $select = ctrls[0];
       var ngModel = scope.ngModel = ctrls[1];
       var $selectMultiple = scope.$selectMultiple;
@@ -78,22 +82,31 @@ uis.directive('uiSelectMultiple', ['uiSelectMinErr','$timeout', function(uiSelec
       //Input that will handle focus
       $select.focusInput = $select.searchInput;
 
-      //From view --> model
-      ngModel.$parsers.unshift(function () {
-        var locals = {},
-            result,
-            resultMultiple = [];
-        for (var j = $select.selected.length - 1; j >= 0; j--) {
-          locals = {};
-          locals[$select.parserResult.itemName] = $select.selected[j];
-          result = $select.parserResult.modelMapper(scope, locals);
-          resultMultiple.unshift(result);
-        }
-        return resultMultiple;
-      });
+      var parserFn = function (dict) { 
+        return function() {
+          var locals = {},
+              result,
+              resultMultiple = [];
+          for (var j = $select.selected.length - 1; j >= 0; j--) {
+            locals = {};
+            locals[$select.parserResult.itemName] = $select.selected[j];
+            result = $select.parserResult.modelMapper(scope, locals);
+            resultMultiple.unshift(result ? result : $select.parserResult.modelMapper(scope, dict));
+          }
+          return resultMultiple;
+        };
+      };
 
-      // From model --> view
-      ngModel.$formatters.unshift(function (inputValue) {
+      //From view --> model
+      if (angular.isDefined(scope.dict)) {
+        $q.when(scope.dict).then(function(dict) {
+          ngModel.$parsers.unshift(parserFn(dict));
+        });
+      } else {
+        ngModel.$parsers.unshift(parserFn());
+      }
+
+      var formatterFn = function (inputValue, dict) {
         var data = $select.parserResult.source (scope, { $select : {search:''}}), //Overwrite $search
             locals = {},
             result;
@@ -125,12 +138,30 @@ uis.directive('uiSelectMultiple', ['uiSelectMinErr','$timeout', function(uiSelec
             //Check model array of all items available
             if (!checkFnMultiple(data, inputValue[k])){
               //If not found on previous lists, just add it directly to resultMultiple
-              resultMultiple.unshift(inputValue[k]);
+              // HACKHACK - bad code smell too many nested conditions!!!
+              if (angular.isDefined(dict)) {
+                if (!checkFnMultiple(dict, inputValue[k])) {
+                  resultMultiple.unshift(inputValue[k]);
+                }
+              } else {
+                resultMultiple.unshift(inputValue[k]);
+              }
             }
           }
         }
         return resultMultiple;
-      });
+      };
+ 
+      // From model --> view
+      if (angular.isDefined(scope.dict)) {
+        $q.when(scope.dict).then(function(dict) {
+          ngModel.$formatters.unshift(function(inputValue) {
+            return formatterFn(inputValue, dict);
+          });
+        });
+      } else {
+        ngModel.$formatters.unshift(formatterFn);
+      }
       
       //Watch for external model changes 
       scope.$watchCollection(function(){ return ngModel.$modelValue; }, function(newValue, oldValue) {
